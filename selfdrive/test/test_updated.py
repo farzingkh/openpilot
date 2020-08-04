@@ -11,7 +11,7 @@ from common.basedir import BASEDIR
 from common.params import Params
 
 
-# TODO: refactor and test NEOS updater here
+# TODO: refactor and test NEOS download here
 
 class TestUpdater(unittest.TestCase):
 
@@ -23,18 +23,18 @@ class TestUpdater(unittest.TestCase):
     except Exception:
       pass
 
-    tmp_dir = tempfile.mkdtemp()
-    org_dir = os.path.join(tmp_dir, "commaai")
-    os.mkdir(org_dir)
-    test_dir = org_dir
+    self.tmp_dir = tempfile.TemporaryDirectory()
+    org_dir = os.path.join(self.tmp_dir.name, "commaai")
 
-    self.basedir = tempfile.mkdtemp(dir=test_dir)
-    self.git_remote_dir = tempfile.mkdtemp(dir=test_dir)
-    self.staging_dir = tempfile.mkdtemp(dir=test_dir)
+    self.basedir = os.path.join(org_dir, "openpilot")
+    self.git_remote_dir = os.path.join(org_dir, "openpilot_remote")
+    self.staging_dir = os.path.join(org_dir, "safe_staging")
+    for d in [org_dir, self.basedir, self.git_remote_dir, self.staging_dir]:
+      os.mkdir(d)
 
+    # setup local submodule remotes
     submodules = subprocess.check_output("git submodule --quiet foreach 'echo $name'",
                                          shell=True, cwd=BASEDIR, encoding='utf8').split()
-    # setup local submodule remotes
     for s in submodules:
       sub_path = os.path.join(org_dir, s.split("_repo")[0])
       self._run(f"git clone {s} {sub_path}.git", cwd=BASEDIR)
@@ -51,12 +51,12 @@ class TestUpdater(unittest.TestCase):
     self.params.clear_all()
 
   def tearDown(self):
-    print(self.updated_proc)
-    print(self.updated_proc.poll())
-
-    if self.updated_proc is not None:
-      self.updated_proc.terminate()
-      self.updated_proc.wait(30)
+    try:
+      if self.updated_proc is not None:
+        self.updated_proc.terminate()
+        self.updated_proc.wait(30)
+    finally:
+      self.tmp_dir.cleanup()
 
   def _run(self, cmd, cwd=None):
     if not isinstance(cmd, list):
@@ -68,6 +68,7 @@ class TestUpdater(unittest.TestCase):
   def _start_updater(self):
     os.environ["PYTHONPATH"] = self.basedir
     os.environ["UPDATER_TESTING"] = "1"
+    os.environ["UPDATER_LOCK_FILE"] = os.path.join(self.tmp_dir.name, "updater.lock")
     os.environ["UPDATER_STAGING_ROOT"] = self.staging_dir
     updated_path = os.path.join(self.basedir, "selfdrive/updated.py")
     self.updated_proc = subprocess.Popen(updated_path, env=os.environ)
@@ -75,14 +76,13 @@ class TestUpdater(unittest.TestCase):
   def _update_now(self):
     self.updated_proc.send_signal(signal.SIGHUP)
 
+  # Run updated for 50 cycles with no update
   def test_no_update(self):
     self.params.put("IsOffroad", "1")
     self._start_updater()
-
     time.sleep(2)
 
-    # let the updater run for multiple cycles without an update
-    for _ in range(30):
+    for _ in range(50):
       start_time = time.monotonic()
       while self.params.get("LastUpdateTime") is None:
         self._update_now()
@@ -98,14 +98,15 @@ class TestUpdater(unittest.TestCase):
       last_update_time = datetime.datetime.fromisoformat(t)
       td = datetime.datetime.utcnow() - last_update_time
       self.assertLess(td.total_seconds(), 10)
+      self.params.delete("LastUpdateTime")
 
       # UpdateAvailable should be false
       self.assertTrue(self.params.get("UpdateAvailable") != b"1")
-      self.params.delete("LastUpdateTime")
 
       # make sure failed update count is 0
       failed_updates = int(self.params.get("UpdateFailedCount", encoding='utf8'))
       self.assertEqual(failed_updates, 0)
+
 
   #def test_update(self):
   #  raise unittest.SkipTest
@@ -128,14 +129,26 @@ class TestUpdater(unittest.TestCase):
   #    time.sleep(0.05)
   #  self.assertEqual(self.params.get("UpdateAvailable"), b"1")
 
-  #def test_update_now(self):
-  #  pass
+  #def test_overlay_reinit(self):
+  #  self.params.put("IsOffroad", "1")
+  #  slef._start_updater()
+  # 
+  #  time.sleep(2)
+  #
+  #  # let updater run for a cycle
+  #  self._update_now()
+  #
+  #  # make sure the overlay was initialized
+  #  start_time = time.monotonic()
+  #  while params
+  #    if time.monotonic() - start_time > 60:
+  #      pass
+
 
   #def test_release_notes(self):
   #  pass
 
-  # make sure the overlay is re-created when basedir has new files
-  #def test_reinit_overlay(self):
+  #def test_only_one_updated(self):
   #  pass
 
 if __name__ == "__main__":

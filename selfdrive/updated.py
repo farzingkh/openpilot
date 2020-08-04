@@ -103,10 +103,8 @@ def run(cmd, cwd=None):
 def remove_consistent_flag():
   os.system("sync")
   consistent_file = Path(os.path.join(FINALIZED, ".overlay_consistent"))
-  try:
+  if os.path.isfile(consistent_file):
     consistent_file.unlink()
-  except FileNotFoundError:
-    pass
   os.system("sync")
 
 
@@ -322,14 +320,12 @@ def attempt_update():
 
 
 def main():
-  update_failed_count = 0
-  overlay_init_done = False
   params = Params()
 
   if params.get("DisableUpdates") == b"1":
     raise RuntimeError("updates are disabled by param")
 
-  if os.geteuid() != 0 and not UPDATER_TESTING:
+  if os.geteuid() != 0:
     raise RuntimeError("updated must be launched as root!")
 
   # Set low io priority
@@ -349,6 +345,8 @@ def main():
     time.sleep(30)
   wait_helper = WaitTimeHelper()
 
+  update_failed_count = 0
+  overlay_init_done = False
   while not wait_helper.shutdown:
     update_failed_count += 1
 
