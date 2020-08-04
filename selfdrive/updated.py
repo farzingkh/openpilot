@@ -41,9 +41,11 @@ from common.basedir import BASEDIR
 from common.params import Params
 from selfdrive.swaglog import cloudlog
 
+LOCK_FILE = "/tmp/safe_staging_overlay.lock"
 STAGING_ROOT = "/data/safe_staging"
 UPDATER_TESTING = os.getenv("UPDATER_TESTING") is not None
 if UPDATER_TESTING:
+  LOCK_FILE = os.getenv("UPDATER_LOCK_FILE", LOCK_FILE)
   STAGING_ROOT = os.getenv("UPDATER_STAGING_ROOT", STAGING_ROOT)
 
 OVERLAY_UPPER = os.path.join(STAGING_ROOT, "upper")
@@ -335,7 +337,7 @@ def main():
   if psutil.LINUX:
     p.ionice(psutil.IOPRIO_CLASS_BE, value=7)
 
-  ov_lock_fd = open('/tmp/safe_staging_overlay.lock', 'w')
+  ov_lock_fd = open(LOCK_FILE, 'w')
   try:
     fcntl.flock(ov_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
   except IOError:

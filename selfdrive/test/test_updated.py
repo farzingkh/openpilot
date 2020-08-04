@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
+import datetime
 import os
+import time
 import tempfile
 import unittest
 import signal
 import subprocess
-import time
 
 from common.basedir import BASEDIR
 from common.params import Params
 
 
+# TODO: refactor and test NEOS updater here
+
 class TestUpdater(unittest.TestCase):
 
   def setUp(self):
-    self.updater_proc = None
+    self.updated_proc = None
 
     try:
       os.remove("/tmp/safe_staging_overlay.lock")
@@ -48,9 +51,12 @@ class TestUpdater(unittest.TestCase):
     self.params.clear_all()
 
   def tearDown(self):
-    if self.updater_proc is not None:
-      self.updater_proc.terminate()
-      self.updater_proc.wait(30)
+    print(self.updated_proc)
+    print(self.updated_proc.poll())
+
+    if self.updated_proc is not None:
+      self.updated_proc.terminate()
+      self.updated_proc.wait(30)
 
   def _run(self, cmd, cwd=None):
     if not isinstance(cmd, list):
@@ -64,52 +70,63 @@ class TestUpdater(unittest.TestCase):
     os.environ["UPDATER_TESTING"] = "1"
     os.environ["UPDATER_STAGING_ROOT"] = self.staging_dir
     updated_path = os.path.join(self.basedir, "selfdrive/updated.py")
-    self.updater_proc = subprocess.Popen(updated_path, env=os.environ)
+    self.updated_proc = subprocess.Popen(updated_path, env=os.environ)
 
   def _update_now(self):
-    self.updater_proc.send_signal(signal.SIGHUP)
+    self.updated_proc.send_signal(signal.SIGHUP)
 
   def test_no_update(self):
     self.params.put("IsOffroad", "1")
-    time.sleep(1)
     self._start_updater()
 
-    time.sleep(1)
+    time.sleep(2)
 
-    # let the updater run for 5 cycles without an update
-    for _ in range(5):
-      self._update_now()
-
+    # let the updater run for multiple cycles without an update
+    for _ in range(30):
       start_time = time.monotonic()
       while self.params.get("LastUpdateTime") is None:
+        self._update_now()
         if time.monotonic() - start_time > 30:
           raise Exception("failed to complete cycle in 30s")
         time.sleep(0.05)
 
-      # TODO: check the last update time is recent
-      #self.params.get("LastUpdateTime")
+      # give a bit of time to write all the params
+      time.sleep(0.01)
+
+      # make sure LastUpdateTime is recent
+      t = self.params.get("LastUpdateTime", encoding='utf8')
+      last_update_time = datetime.datetime.fromisoformat(t)
+      td = datetime.datetime.utcnow() - last_update_time
+      self.assertLess(td.total_seconds(), 10)
+
+      # UpdateAvailable should be false
       self.assertTrue(self.params.get("UpdateAvailable") != b"1")
       self.params.delete("LastUpdateTime")
 
-  def test_update(self):
-    self.params.put("IsOffroad", "1")
-    self._start_updater()
+      # make sure failed update count is 0
+      failed_updates = int(self.params.get("UpdateFailedCount", encoding='utf8'))
+      self.assertEqual(failed_updates, 0)
 
-    # make some fake commits in our remote
-    self._run([
-      "git config user.email tester@testing.com",
-      "git config user.name Testy Tester",
-      "git commit --allow-empty -m 'an update'",
-    ], cwd=self.git_remote_dir)
-
-    self._update_now()
-    start_time = time.monotonic()
-    while self.params.get("LastUpdateTime") is None:
-      if time.monotonic() - start_time > 60:
-        raise Exception("failed to complete cycle in 60s")
-      time.sleep(0.05)
-    self.assertEqual(self.params.get("UpdateAvailable"), b"1")
-
+  #def test_update(self):
+  #  raise unittest.SkipTest
+  #
+  #  self.params.put("IsOffroad", "1")
+  #  self._start_updater()
+  #
+  #  # make some fake commits in our remote
+  #  self._run([
+  #    "git config user.email tester@testing.com",
+  #    "git config user.name Testy Tester",
+  #    "git commit --allow-empty -m 'an update'",
+  #  ], cwd=self.git_remote_dir)
+  #
+  #  self._update_now()
+  #  start_time = time.monotonic()
+  #  while self.params.get("LastUpdateTime") is None:
+  #    if time.monotonic() - start_time > 60:
+  #      raise Exception("failed to complete cycle in 60s")
+  #    time.sleep(0.05)
+  #  self.assertEqual(self.params.get("UpdateAvailable"), b"1")
 
   #def test_update_now(self):
   #  pass
@@ -117,7 +134,8 @@ class TestUpdater(unittest.TestCase):
   #def test_release_notes(self):
   #  pass
 
-  #def test_disable_updates_param(self):
+  # make sure the overlay is re-created when basedir has new files
+  #def test_reinit_overlay(self):
   #  pass
 
 if __name__ == "__main__":
