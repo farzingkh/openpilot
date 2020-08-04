@@ -2,7 +2,9 @@
 import os
 import tempfile
 import unittest
+import signal
 import subprocess
+import time
 
 from common.basedir import BASEDIR
 from common.params import Params
@@ -11,9 +13,12 @@ from common.params import Params
 class TestUpdater(unittest.TestCase):
 
   def setUp(self):
-    self.params = Params()
-    self.params.clear_all()
     self.updater_proc = None
+
+    try:
+      os.remove("/tmp/safe_staging_overlay.lock")
+    except Exception:
+      pass
 
     tmp_dir = tempfile.mkdtemp()
     org_dir = os.path.join(tmp_dir, "commaai")
@@ -39,10 +44,13 @@ class TestUpdater(unittest.TestCase):
       f"cd {self.basedir} && scons -j4 cereal"
     ])
 
+    self.params = Params(db=os.path.join(self.basedir, "persist/params"))
+    self.params.clear_all()
+
   def tearDown(self):
     if self.updater_proc is not None:
       self.updater_proc.terminate()
-      self.updater_proc.wait(10)
+      self.updater_proc.wait(30)
 
   def _run(self, cmd, cwd=None):
     if not isinstance(cmd, list):
@@ -58,7 +66,33 @@ class TestUpdater(unittest.TestCase):
     updated_path = os.path.join(self.basedir, "selfdrive/updated.py")
     self.updater_proc = subprocess.Popen(updated_path, env=os.environ)
 
+  def _update_now(self):
+    self.updater_proc.send_signal(signal.SIGHUP)
+
+  def test_no_update(self):
+    self.params.put("IsOffroad", "1")
+    time.sleep(1)
+    self._start_updater()
+
+    time.sleep(1)
+
+    # let the updater run for 5 cycles without an update
+    for _ in range(5):
+      self._update_now()
+
+      start_time = time.monotonic()
+      while self.params.get("LastUpdateTime") is None:
+        if time.monotonic() - start_time > 30:
+          raise Exception("failed to complete cycle in 30s")
+        time.sleep(0.05)
+
+      # TODO: check the last update time is recent
+      #self.params.get("LastUpdateTime")
+      self.assertTrue(self.params.get("UpdateAvailable") != b"1")
+      self.params.delete("LastUpdateTime")
+
   def test_update(self):
+    self.params.put("IsOffroad", "1")
     self._start_updater()
 
     # make some fake commits in our remote
@@ -67,6 +101,15 @@ class TestUpdater(unittest.TestCase):
       "git config user.name Testy Tester",
       "git commit --allow-empty -m 'an update'",
     ], cwd=self.git_remote_dir)
+
+    self._update_now()
+    start_time = time.monotonic()
+    while self.params.get("LastUpdateTime") is None:
+      if time.monotonic() - start_time > 60:
+        raise Exception("failed to complete cycle in 60s")
+      time.sleep(0.05)
+    self.assertEqual(self.params.get("UpdateAvailable"), b"1")
+
 
   #def test_update_now(self):
   #  pass

@@ -45,7 +45,6 @@ STAGING_ROOT = "/data/safe_staging"
 UPDATER_TESTING = os.getenv("UPDATER_TESTING") is not None
 if UPDATER_TESTING:
   STAGING_ROOT = os.getenv("UPDATER_STAGING_ROOT", STAGING_ROOT)
-print("USING", STAGING_ROOT, "AS STAGING ROOT")
 
 OVERLAY_UPPER = os.path.join(STAGING_ROOT, "upper")
 OVERLAY_METADATA = os.path.join(STAGING_ROOT, "metadata")
