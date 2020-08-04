@@ -26,20 +26,25 @@ import os
 import datetime
 import subprocess
 import psutil
-from stat import S_ISREG, S_ISDIR, S_ISLNK, S_IMODE, ST_MODE, ST_INO, ST_UID, ST_GID, ST_ATIME, ST_MTIME
 import shutil
 import signal
-from pathlib import Path
 import fcntl
 import threading
 import time
 from cffi import FFI
+from pathlib import Path
+from stat import S_ISREG, S_ISDIR, S_ISLNK, S_IMODE, \
+                 ST_MODE, ST_INO, ST_UID, ST_GID, \
+                 ST_ATIME, ST_MTIME
 
 from common.basedir import BASEDIR
 from common.params import Params
 from selfdrive.swaglog import cloudlog
 
 STAGING_ROOT = "/data/safe_staging"
+UPDATER_TESTING = os.getenv("UPDATER_TESTING") is not None
+if UPDATER_TESTING:
+  STAGING_ROOT = os.getenv("UPDATER_STAGING_ROOT", STAGING_ROOT)
 
 OVERLAY_UPPER = os.path.join(STAGING_ROOT, "upper")
 OVERLAY_METADATA = os.path.join(STAGING_ROOT, "metadata")
@@ -338,7 +343,8 @@ def main():
 
   # Wait a short time before our first update attempt
   # Avoids race with IsOffroad not being set, reduces manager startup load
-  time.sleep(30)
+  if not UPDATER_TESTING:
+    time.sleep(30)
   wait_helper = WaitTimeHelper()
 
   while not wait_helper.shutdown:
