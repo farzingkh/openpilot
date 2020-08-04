@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import os
-import unittest
+import time
 import tempfile
+import unittest
 import subprocess
 
 from common.basedir import BASEDIR
@@ -17,7 +18,9 @@ class TestUpdater(unittest.TestCase):
     self.basedir = tempfile.mkdtemp()
     self.git_remote_dir = tempfile.mkdtemp()
     self.staging_dir = tempfile.mkdtemp()
-    os.environ["UPDATER_STAGING_ROOT"] = self.staging_dir
+
+    test = subprocess.Popen("which python3", shell=True)
+    test.terminate()
 
     # setup two git repos
     self._run([
@@ -31,7 +34,7 @@ class TestUpdater(unittest.TestCase):
       "PYTHONPATH": self.staging_dir,
       "UPDATER_TESTING": "1",
       "UPDATER_STAGING_ROOT": self.staging_dir,
-    })
+    }, shell=True)
 
   def tearDown(self):
     self.updater_proc.terminate()
@@ -52,7 +55,7 @@ class TestUpdater(unittest.TestCase):
       "git commit --allow-empty -m 'an update'",
     ], cwd=self.git_remote_dir)
 
-    # start updater
+    time.sleep(5)
 
   #def test_update_now(self):
   #  pass
